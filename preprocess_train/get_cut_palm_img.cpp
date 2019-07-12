@@ -46,6 +46,8 @@ int cut_img(char *palm_file, char *palmxyfile, int N_small_img, int Size_small_i
     int nline       = CountLines(palmxyfile);
     int nwidth      = youngpalm.cols;
     int nheight     = youngpalm.rows;
+    int nobject     = 0;
+
 
     ofstream palmboxfile(palm_box, ios::app);
     for (int i = 0; i < N_small_img; i++)
@@ -112,30 +114,43 @@ int cut_img(char *palm_file, char *palmxyfile, int N_small_img, int Size_small_i
                 BOX_xyarray[index][3] = box_right_y - Y_Top_Left_position;
                 BOX_xyarray[index][4] = palmxyarray[j][5];
                 index++;
-
             }
         }
-        if (index == 0) continue;
 
-        cv::Mat SubImg = Mat::zeros(Size_small_img, Size_small_img, CV_8UC3);
-        for (int ii = 0; ii<Size_small_img; ii++) {
-            for (int jj = 0; jj<Size_small_img; jj++) {
-                SubImg.at<Vec3b>(ii, jj) = youngpalm.at<Vec3b>
-                        (Y_Top_Left_position + ii, X_Top_Left_position + jj);
+        nobject += index;
+        cout << i << " th images  " << filename << endl;
+        cout << "  num of objects " <<  index << " accum " << nobject << endl;
+        cout << "  Y_Top_Left_position " << Y_Top_Left_position << " X_Top_Left_position "
+                    << X_Top_Left_position << endl;
+
+        if (index != 0){
+
+            cv::Mat SubImg = Mat::zeros(Size_small_img, Size_small_img, CV_8UC3);
+            for (int ii = 0; ii<Size_small_img; ii++) {
+                for (int jj = 0; jj<Size_small_img; jj++) {
+                    SubImg.at<Vec3b>(ii, jj) = youngpalm.at<Vec3b>
+                            (Y_Top_Left_position + ii, X_Top_Left_position + jj);
+                }
             }
-        }
-        cv::imwrite(img_name, SubImg);
+            cv::imwrite(img_name, SubImg);
+            SubImg.release();
 
-        palmboxfile << img_name << " ";
-        palmboxfile << index << " ";
-        for (int k = 0; k < index; k++) {
-            palmboxfile << BOX_xyarray[k][0] << " ";
-            palmboxfile << BOX_xyarray[k][1] << " ";
-            palmboxfile << BOX_xyarray[k][2] << " ";
-            palmboxfile << BOX_xyarray[k][3] << " ";
-            palmboxfile << (int)BOX_xyarray[k][4] << " ";
+            palmboxfile << img_name << " ";
+            palmboxfile << index << " ";
+            for (int k = 0; k < index; k++) {
+                palmboxfile << BOX_xyarray[k][0] << " ";
+                palmboxfile << BOX_xyarray[k][1] << " ";
+                palmboxfile << BOX_xyarray[k][2] << " ";
+                palmboxfile << BOX_xyarray[k][3] << " ";
+                palmboxfile << (int)BOX_xyarray[k][4] << " ";
+            }
+            palmboxfile << endl;
         }
-        palmboxfile << endl;
+
+        for (int j = 0; j < nline; j++) {
+                delete[] palmxyarray[j];
+                delete[] BOX_xyarray[j];
+        }
     }
 
     return 0;
