@@ -18,6 +18,7 @@ from fast_rcnn.config import cfg
 from fast_rcnn.test import im_detect
 from fast_rcnn.nms_wrapper import nms
 from utils.timer import Timer
+import time
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -25,53 +26,67 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 lib = ctypes.cdll.LoadLibrary
 lib_so = lib("./preprocess_train/get_cut_palm_img.so")
 
-
 # data augmentation setting
-DATA_AUG = True
+DATA_AUG  = False
+skip_crop = False
+skip_cut  = False    # it takes quite long
+
+try:
+    os.mkdir('temp')
+except:
+    pass
+
+ResultName_ = os.path.join('temp', 'cropped_inp.jpg')
 
 
+def crop_image(inpp, outpp, x, y, w, h):
+    print 'Cropping image ', ResultName_
+    t0 = time.time()
+    img = cv2.imread(inpp)
+    img = img[y:y+h, x:x+w]
+    cv2.imwrite(outpp, img)    
+    print 'Crop image done ', int(time.time()-t0), 'sec'
+    
+if (not skip_crop):
+    crop_image(cfg_parameters.img_path_cfg, ResultName_, 
+        cfg_parameters.ImgBeginX_cfg, cfg_parameters.ImgBeginY_cfg, 
+        cfg_parameters.Dst_img_width_cfg, cfg_parameters.Dst_img_height_cfg)
 
-# get image from the origin
-ImgPath = cfg_parameters.img_path_cfg
 
-ImgBeginX = cfg_parameters.ImgBeginX_cfg
-ImgBeginY = cfg_parameters.ImgBeginY_cfg
-Dst_img_width = cfg_parameters.Dst_img_width_cfg
-Dst_img_height = cfg_parameters.Dst_img_height_cfg
+if (not skip_cut):
+    # Second step: slice the cropped images and label file, 
+    # generate small images and gt_palm.txt
 
-ImgPath_split = ImgPath.split('/')
-ResultName_ = os.path.join(
-    ImgPath_split[1] + '/' + ImgPath_split[3][:-4] + '-x' + str(ImgBeginX) + '-y' + str(ImgBeginY) + '-' +
-    str(Dst_img_width) + '-' + str(Dst_img_height) + '.jpg')
+    palm_file = ResultName_
+    print 'palm_file ', ResultName_
+    palmxyfile = cfg_parameters.palmxyfile_cfg
+    print 'label file ', palmxyfile
+    N_small_img = 4000
+    Size_small_img = 500
+    print 'Size_small_img', Size_small_img
+    
+    palm_box  = "./preprocess_train/oilpalm-train/gt_palm.txt"
+    img_dir   = "./preprocess_train/oilpalm-train/IMG_Palm"
+    img_name_ = "./preprocess_train/oilpalm-train/IMG_Palm/IMG_"
+
+    if not os.path.exists('./preprocess_train/oilpalm-train'):
+        os.mkdir('./preprocess_train/oilpalm-train')
+
+    if os.path.exists(palm_box):
+        os.remove(palm_box)
+    if os.path.exists(img_dir):
+        shutil.rmtree(img_dir)
+    os.mkdir(img_dir)
+    
+    cut = lib_so.cut_img(palm_file, palmxyfile, N_small_img, Size_small_img, 
+            palm_box, img_name_, 
+            cfg_parameters.ImgBeginX_cfg, cfg_parameters.ImgBeginY_cfg)
+    
+    print('cut finished')
+    raw_input('press enter to continue')
 
 
-get = lib_so.get_img(ImgPath, ResultName_, Dst_img_width, Dst_img_height, 
-        ImgBeginX, ImgBeginY)
-
-print('lib_so.get_img() done')
-
-# ---------------------------Second step:CUT IMAGE-----------------------------
-
-palm_file = ResultName_
-palmxyfile = cfg_parameters.palmxyfile_cfg
-N_small_img = 2000
-Size_small_img = 500
-palm_box = "./preprocess_train/oilpalm-train/gt_palm.txt"
-img_dir = "./preprocess_train/oilpalm-train/IMG_Palm"
-img_name_ = "./preprocess_train/oilpalm-train/IMG_Palm/IMG_"
-#---------------remove the exist gt_palm.txt & train.txt & IMG_Palm file
-if os.path.exists(palm_box):
-    os.remove(palm_box)
-if os.path.exists(img_dir):
-    shutil.rmtree(img_dir)
-os.mkdir(img_dir)
-
-cut = lib_so.cut_img(palm_file, palmxyfile, N_small_img, Size_small_img, 
-        palm_box, img_name_, ImgBeginX, ImgBeginY)
-
-print('ok,cut finished')
 #---------------Third step:GET TRAIN.TXT CORRESPOND TO THE CUTTED IMAGE------
-
 path = './preprocess_train/oilpalm-train/'
 with open(path + 'train.txt', 'w') as wf:
     imfiles = os.listdir(os.path.join(path + 'IMG_Palm'))
@@ -81,28 +96,25 @@ with open(path + 'train.txt', 'w') as wf:
         # print('frame:', frame)
         wf.write('%s \n' % (frame))
 
-print('ok,get train.txt finished')
+print('ok, get train.txt finished')
+quit()
+
 # ------------------------Forth step:data augmentation------------------------------
-image_path = path
-
-origin_acacia_path = os.listdir(os.path.join(image_path + 'IMG_Palm'))
-origin_acacia_path = natsort.natsorted(origin_acacia_path)
-
 if DATA_AUG == True:
-
+    image_path = path
+    origin_acacia_path = os.listdir(os.path.join(image_path + 'IMG_Palm'))
+    origin_acacia_path = natsort.natsorted(origin_acacia_path)
     from datasets.data_augmentation import data_augmentation
-# ------------------------------data_load-----------------
     with tf.Session() as sess:
         init = tf.global_variables_initializer()
-
         for i in origin_acacia_path:
             image_i = cv2.imread(os.path.join(image_path + 'IMG_Palm' + '/' + i))
             im = data_augmentation(image_i)
             cv2.imwrite(os.path.join(image_path + 'IMG_Palm' + '/' + i), im)
 
-    print('ok,data augmentation finished')
+    print('ok, data augmentation finished')
 
-# ---------------------------------------Fifth step:train the network-----------------------------
+quit()
 
 from fast_rcnn.train import get_training_roidb, train_net
 from fast_rcnn.config import cfg, cfg_from_file, cfg_from_list, get_output_dir
@@ -147,9 +159,9 @@ def parse_args():
                         help='the training data',
                         default=None, type=str)
 
-    if len(sys.argv) == 1:
-        parser.print_help()
-        sys.exit(1)
+    #if len(sys.argv) == 1:
+    #    parser.print_help()
+    #    sys.exit(1)
 
     args = parser.parse_args()
     return args
@@ -157,8 +169,8 @@ def parse_args():
 
 if __name__ == '__main__':
     args = parse_args()
-    args.weights = "./pretrain_model/VGG_imagenet.npy "
-    args.data_path = './preprocess_train/oilpalm-train'
+    args.weights = cfg_parameters.pretrain_weights
+    args.data_path = '/home/ins/tree-count-train/preprocess_train/oilpalm-train'
 
     print('Called with args:')
     print(args)
